@@ -15,6 +15,47 @@ module FecResults
     def results(options={})
       send("process_#{year}", options)
     end
+    def process_2014(options)
+      results = []
+      ## in contrast to 2012, there are two sheets with the data: one for each chamber
+      sheets = ["2014 US Senate Results by State", "2014 US House Results by State"]
+      sheets.each do |sheet|
+        t = RemoteTable.new(url, :sheet => "2014 US Senate Results by State")
+        rows = t.entries
+        rows = rows.select{|r| r['D'] == options[:chamber]} if options[:chamber]
+        rows = rows.select{|r| r['STATE ABBREVIATION'] == options[:state]} if options[:state]
+        rows.each do |candidate|
+          c = {:year => year}
+          next if candidate['CANDIDATE NAME (Last)'].blank?
+          next if candidate['D'].blank?
+          # find the office_type
+          if candidate['FEC ID#'].first != 'n'
+            c[:chamber] = candidate['FEC ID#'].first
+          elsif candidate['D'].first == 'S'
+            c[:chamber] = "S"
+          else
+            c[:chamber] = 'H'
+          end
+          c[:state] = candidate['STATE ABBREVIATION']
+          c[:district] = candidate['D']
+          c[:party] = candidate['PARTY']
+          c[:incumbent] = candidate['(I)'] == '(I)' ? true : false
+          c[:fec_id] = candidate['FEC ID#']
+          c[:candidate_first] = candidate['CANDIDATE NAME (First)']
+          c[:candidate_last] = candidate['CANDIDATE NAME (Last)']
+          c[:candidate_name] = candidate['CANDIDATE NAME']
+
+          c = update_vote_tallies(c, candidate, 'PRIMARY VOTES', 'PRIMARY %', 'RUNOFF VOTES', 'RUNOFF %', 'GENERAL VOTES ', 'GENERAL %')
+          c = update_general_runoff(c, candidate, 'GE RUNOFF ELECTION VOTES (LA)', 'GE RUNOFF ELECTION % (LA)') if c[:state] == 'LA'
+          c = update_combined_totals(c, candidate, 'COMBINED GE PARTY TOTALS (CT, NY, SC)', 'COMBINED % (CT, NY, SC)') if ['CT', 'NY', 'SC'].include?(c[:state])
+
+          c[:general_winner] = candidate['GE WINNER INDICATOR'] == "W" ? true : false unless c[:general_pct].nil?
+
+          results << c
+        end
+      end
+      Result.create_from_results(results)
+    end
 
     def process_2012(options)
       results = []
